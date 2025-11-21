@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Indoor Archery Timer & Match Tracker</title>
+
+<style>
+  :root{
+    --bg:#061428;--card:#0b2236;--accent:#f59e0b;--accent2:#25b6ff;--muted:#9bb0c8;--white:#eaf6ff;--danger:#ff4d4f;
+    --glass: rgba(255,255,255,0.03);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter, system-ui, Arial;background:linear-gradient(180deg,#021225 0%, #061428 100%);color:var(--white)}
+  .wrap{max-width:1200px;margin:18px auto;padding:18px;display:grid;grid-template-columns:1fr 380px;gap:18px}
+  .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:14px;box-shadow:0 8px 30px rgba(0,0,0,0.6)}
+  header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  h1{margin:0;font-size:20px}
+  .sub{color:var(--muted);font-size:13px}
+
+  /* left main */
+  .clockBox{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px;border-radius:10px;background:rgba(0,10,20,0.25)}
+  #displayTime{font-size:7.5rem;font-weight:800;color:var(--accent2);transition:color .12s}
+  .metaRow{display:flex;gap:12px;align-items:center}
+  .badge{background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:8px;font-weight:700}
+  .controls{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{background:#0d2b3b;padding:10px 14px;border-radius:10px;border:0;color:var(--white);cursor:pointer}
+  .btn.alt{background:#07202b}
+  .danger{background:var(--danger);}
+  .small{font-size:13px;color:var(--muted)}
+
+  /* scoreboard */
+  .scoreTable{margin-top:12px;max-height:360px;overflow:auto;border-radius:8px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:8px;border-bottom:1px solid rgba(255,255,255,0.03);text-align:left}
+  th{font-size:13px;color:var(--muted)}
+  td.right{text-align:right}
+  input.scoreCell{width:80px;padding:6px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--white)}
+
+  /* right column */
+  .presetList{display:flex;flex-direction:column;gap:8px;max-height:520px;overflow:auto;padding-right:6px}
+  .presetItem{padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);cursor:pointer}
+  .presetItem.active{outline:2px solid rgba(37,182,255,0.18)}
+  .formRow{display:flex;gap:8px;align-items:center}
+
+  footer{grid-column:1/-1;color:var(--muted);font-size:13px;text-align:right}
+
+  /* projector */
+  .projector{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:#02111b;color:var(--white);z-index:9999}
+  .projTime{font-size:14rem;font-weight:900}
+  .projMeta{font-size:48px;margin-top:18px}
+  .projControls{position:fixed;left:18px;bottom:18px;display:flex;gap:8px}
+  .projBtn{padding:12px 16px;border-radius:8px;background:rgba(255,255,255,0.04);color:var(--white);border:0;cursor:pointer}
+
+  @media(max-width:1024px){.wrap{grid-template-columns:1fr}.projMeta{font-size:32px}.projTime{font-size:8rem}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Indoor Archery — Timer & Match Tracker</h1>
+      <div class="sub">Lancaster-style start, presets, A-B / C-D lines, projector mode, CSV export</div>
+    </div>
+    <div class="small">Space = Start/Pause · R = Reset · L = Line Done</div>
+  </header>
+
+  <!-- LEFT: Timer + Scores -->
+  <section class="card">
+    <div class="clockBox">
+      <div class="metaRow">
+        <div class="badge" id="presetName">Loading...</div>
+        <div class="small" id="presetDesc"></div>
+      </div>
+
+      <div id="displayTime">02:00</div>
+
+      <div class="metaRow">
+        <div>
+          <div class="small">End</div>
+          <div class="badge" id="endDisplay">1 / 12</div>
+        </div>
+        <div>
+          <div class="small">Line</div>
+          <div class="badge" id="lineDisplay">A</div>
+        </div>
+        <div>
+          <div class="small">Arrows</div>
+          <div class="badge" id="arrowsDisplay">3</div>
+        </div>
+      </div>
+
+      <div class="controls" style="margin-top:6px">
+        <button class="btn" id="startBtn">Start (space)</button>
+        <button class="btn alt" id="pauseBtn">Pause</button>
+        <button class="btn alt" id="resetBtn">Reset (R)</button>
+        <button class="btn" id="lineDoneBtn">Line Done (L)</button>
+        <button class="btn" id="homeBtn">Home</button>
+        <button class="btn" id="projToggle">Projector</button>
+      </div>
+
+      <div class="small">Pre-start: plays Lancaster start sound → 5s countdown → main timer</div>
+    </div>
+
+    <div style="margin-top:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h3 style="margin:0">Scores — Active Line</h3>
+        <div class="small">Enter end total for each archer then click <strong>Line Done</strong></div>
+      </div>
+
+      <div class="scoreTable card" id="scoreCard" style="margin-top:10px;padding:8px">
+        <table id="scoreTbl">
+          <thead>
+            <tr><th>Archer</th><th class="right">End Score</th><th class="right">Running Total</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <button class="btn" id="addArcherBtn">Add Archer</button>
+        <button class="btn" id="exportBtn">Export CSV</button>
+        <button class="btn alt" id="clearLineBtn">Clear Line Scores</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: Presets & settings -->
+  <aside class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <strong>Formats & Presets</strong>
+      <button class="btn alt" id="newPresetBtn">New</button>
+    </div>
+
+    <div class="presetList" id="presetList"></div>
+
+    <hr style="border:0;border-top:1px solid rgba(255,255,255,0.03);margin:10px 0">
+
+    <div>
+      <div class="small">Custom end length</div>
+      <div class="formRow" style="margin-top:6px">
+        <input id="customSeconds" type="number" placeholder="Seconds per end" style="flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--white)" />
+        <input id="customArrows" type="number" placeholder="Arrows per end" style="width:110px;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--white)" />
+        <button class="btn" id="applyCustom">Apply</button>
+      </div>
+    </div>
+
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn" id="modeAB">A - B Lines</button>
+      <button class="btn" id="modeCD">C - D Lines</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <div class="small">Max archers per line: 30</div>
+    </div>
+  </aside>
+
+  <footer>Built for indoor target archery — fork, tweak, print. No backend required.</footer>
+</div>
+
+<!-- PROJECTOR MODE -->
+<div class="projector" id="projector">
+  <div class="projTime" id="projTime">02:00</div>
+  <div class="projMeta" id="projMeta">Line: A · End: 1</div>
+  <div class="projControls">
+    <button class="projBtn" id="projStart">Start</button>
+    <button class="projBtn" id="projPause">Pause</button>
+    <button class="projBtn" id="projReset">Reset</button>
+    <button class="projBtn" id="projLineDone">Line Done</button>
+  </div>
+</div>
+
+<script>
+// ---------- Presets
+const DEFAULT_PRESETS = {
+  "Lancaster - Individual": {seconds:120, arrows:3, ends:1, desc:"Lancaster elimination — 120s / 3 arrows"},
+  "Lancaster - Team": {seconds:120, arrows:6, ends:12, desc:"Team ends — 120s / 6 arrows"},
+  "NFAA 18m": {seconds:120, arrows:5, ends:12, desc:"NFAA indoor 18m — 12 ends of 5"},
+  "Practice - 60s/3": {seconds:60, arrows:3, ends:12, desc:"Short practice"}
+};
+
+// ---------- State
+let state = {
+  presetKey: Object.keys(DEFAULT_PRESETS)[0],
+  totalSeconds: DEFAULT_PRESETS[Object.keys(DEFAULT_PRESETS)[0]].seconds,
+  secondsLeft: DEFAULT_PRESETS[Object.keys(DEFAULT_PRESETS)[0]].seconds,
+  arrowsPerEnd: DEFAULT_PRESETS[Object.keys(DEFAULT_PRESETS)[0]].arrows,
+  totalEnds: DEFAULT_PRESETS[Object.keys(DEFAULT_PRESETS)[0]].ends || 12,
+  currentEnd: 1,
+  running: false,
+  preCountdown: 5,
+  preRunning: false,
+  intervalId: null,
+  lineMode: 'AB', // 'AB' or 'CD'
+  activeLine: 'A', // shows current active line
+  // track which lines finished for current end
+  doneFlags: {A:false,B:false,C:false,D:false},
+  // archers: separate lists per line
+  archers: {A:[],B:[],C:[],D:[]}
+};
+
+// ---------- DOM refs
+const presetListEl = document.getElementById('presetList');
+const presetNameEl = document.getElementById('presetName');
+const presetDescEl = document.getElementById('presetDesc');
+const displayTime = document.getElementById('displayTime');
+const endDisplay = document.getElementById('endDisplay');
+const lineDisplay = document.getElementById('lineDisplay');
+const arrowsDisplay = document.getElementById('arrowsDisplay');
+const scoreTblBody = document.querySelector('#scoreTbl tbody');
+
+// projector elements
+const projector = document.getElementById('projector');
+const projTime = document.getElementById('projTime');
+const projMeta = document.getElementById('projMeta');
+
+// init
+function init(){
+  renderPresets();
+  loadPreset(state.presetKey);
+  attachHandlers();
+}
+
+// ---------- Preset UI
+function renderPresets(){
+  presetListEl.innerHTML='';
+  for(const k of Object.keys(DEFAULT_PRESETS)){
+    const el = document.createElement('div');
+    el.className='presetItem'+(k===state.presetKey? ' active':'');
+    el.innerHTML=`<strong>${k}</strong><div class=\"small\">${DEFAULT_PRESETS[k].desc}</div>`;
+    el.onclick = ()=>{ loadPreset(k); };
+    presetListEl.appendChild(el);
+  }
+}
+
+function loadPreset(key){
+  const p = DEFAULT_PRESETS[key];
+  state.presetKey = key;
+  state.totalSeconds = p.seconds;
+  state.secondsLeft = p.seconds;
+  state.arrowsPerEnd = p.arrows;
+  state.totalEnds = p.ends || 12;
+  state.currentEnd = 1;
+  state.running = false; clearInterval(state.intervalId); state.intervalId=null; state.preRunning=false;
+  state.doneFlags = {A:false,B:false,C:false,D:false};
+  // reset archers lists
+  // preserve existing archers if present, else empty
+  for(let L of ['A','B','C','D']) if(!state.archers[L]) state.archers[L]=[];
+  updateUI();
+}
+
+// ---------- UI updaters
+function formatMMSS(s){const mm=Math.floor(s/60), ss=s%60;return String(mm).padStart(2,'0')+':'+String(ss).padStart(2,'0');}
+
+function updateUI(){
+  presetNameEl.textContent = state.presetKey;
+  presetDescEl.textContent = DEFAULT_PRESETS[state.presetKey].desc;
+  displayTime.textContent = formatMMSS(state.secondsLeft);
+  endDisplay.textContent = `${state.currentEnd} / ${state.totalEnds}`;
+  lineDisplay.textContent = state.activeLine;
+  arrowsDisplay.textContent = state.arrowsPerEnd;
+  projTime.textContent = formatMMSS(state.secondsLeft);
+  projMeta.textContent = `Line: ${state.activeLine} · End: ${state.currentEnd}`;
+  // color rules
+  if(state.secondsLeft===0) displayTime.style.color='var(--danger)';
+  else if(state.secondsLeft<=10) displayTime.style.color='var(--danger)';
+  else if(state.secondsLeft<=30) displayTime.style.color='var(--accent)';
+  else displayTime.style.color='var(--accent2)';
+  // render score table for active line
+  renderScoreTable();
+}
+
+// ---------- Score table
+function renderScoreTable(){
+  scoreTblBody.innerHTML='';
+  const list = state.archers[state.activeLine] || [];
+  for(let i=0;i<list.length;i++){
+    const ar = list[i];
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}. <strong>${escapeHtml(ar.name)}</strong></td>
+      <td class=\"right\"><input class=\"scoreCell\" data-idx=\"${i}\" value=\"${ar.current||''}\"></td>
+      <td class=\"right\">${ar.total||0}</td>`;
+    scoreTblBody.appendChild(tr);
+  }
+  // attach input handlers
+  document.querySelectorAll('.scoreCell').forEach(inp=>{
+    inp.oninput = (e)=>{
+      const idx = e.target.dataset.idx; const v = parseInt(e.target.value) || 0;
+      state.archers[state.activeLine][idx].current = v;
+    };
+  });
+}
+
+function escapeHtml(s){return s.replace(/[&<>\"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+
+// ---------- Timer logic (with pre-start Lancaster-like sound then 5s countdown)
+function playLancasterStart(){
+  // synthesize a short 'Lancaster-like' buzzer sequence (approximation)
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    const o1 = ctx.createOscillator();
+    const g1 = ctx.createGain();
+    o1.type='sine'; o1.frequency.setValueAtTime(880, now);
+    g1.gain.setValueAtTime(0.0001, now);
+    g1.gain.exponentialRampToValueAtTime(0.2, now+0.01);
+    g1.gain.exponentialRampToValueAtTime(0.0001, now+0.35);
+    o1.connect(g1); g1.connect(ctx.destination); o1.start(now); o1.stop(now+0.4);
+    // short second tone
+    const o2 = ctx.createOscillator(); const g2 = ctx.createGain();
+    o2.type='sine'; o2.frequency.setValueAtTime(600, now+0.45);
+    g2.gain.setValueAtTime(0.0001, now+0.45); g2.gain.exponentialRampToValueAtTime(0.18, now+0.46); g2.gain.exponentialRampToValueAtTime(0.0001, now+0.8);
+    o2.connect(g2); g2.connect(ctx.destination); o2.start(now+0.45); o2.stop(now+0.85);
+  }catch(e){ /* audio unavailable */ }
+}
+
+function startWithPrecount(){
+  if(state.running || state.preRunning) return;
+  // play start sound then show 5s precount
+  playLancasterStart();
+  state.preRunning = true;
+  const startCount = 5; let c = startCount; displayTime.textContent = String(c);
+  const pre = setInterval(()=>{
+    c--;
+    if(c<=0){ clearInterval(pre); state.preRunning=false; startMainTimer(); }
+    else displayTime.textContent = String(c);
+  }, 1000);
+}
+
+function startMainTimer(){
+  if(state.running) return;
+  state.running = true;
+  state.intervalId = setInterval(()=>{
+    if(state.secondsLeft>0){ state.secondsLeft--; updateUI(); }
+    else { clearInterval(state.intervalId); state.intervalId=null; state.running=false; finalBeep(); updateUI(); }
+  },1000);
+}
+
+function finalBeep(){
+  try{ const ctx=new (window.AudioContext||window.webkitAudioContext)(); const o=ctx.createOscillator(); const g=ctx.createGain(); o.type='sine'; o.frequency.value=440; g.gain.value=0.2; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.4);}catch(e){}
+}
+
+function pauseTimer(){ if(state.intervalId){ clearInterval(state.intervalId); state.intervalId=null; } state.running=false; }
+function resetTimer(){ pauseTimer(); state.secondsLeft = state.totalSeconds; updateUI(); }
+
+// ---------- Line + End handling
+function lineDone(){
+  // save current end scores into totals for active line
+  const arr = state.archers[state.activeLine];
+  if(arr){
+    for(let i=0;i<arr.length;i++){ const a=arr[i]; const val = Number(a.current)||0; a.total = (a.total||0) + val; a.current = 0; }
+  }
+  state.doneFlags[state.activeLine] = true;
+  // check both lines for current mode
+  let lines = state.lineMode==='AB' ? ['A','B'] : ['C','D'];
+  if(state.doneFlags[lines[0]] && state.doneFlags[lines[1]]){
+    // advance end
+    state.currentEnd++;
+    state.doneFlags = {A:false,B:false,C:false,D:false};
+    state.secondsLeft = state.totalSeconds;
+    // wrap finished match
+    if(state.currentEnd > state.totalEnds){ alert('Match complete'); }
+  } else {
+    // switch active line to the other one in pair
+    state.activeLine = (state.activeLine === lines[0]) ? lines[1] : lines[0];
+  }
+  updateUI();
+}
+
+// ---------- Archers management
+function addArcher(){
+  const name = prompt('Archer name (blank to cancel):');
+  if(!name) return;
+  if(state.archers[state.activeLine].length >= 30){ alert('Max 30 archers.'); return; }
+  state.archers[state.activeLine].push({name:name, total:0, current:0});
+  updateUI();
+}
+
+function clearLineScores(){
+  const arr = state.archers[state.activeLine] || [];
+  arr.forEach(a=>{ a.total=0; a.current=0; }); updateUI();
+}
+
+// ---------- CSV Export (sorted highest->lowest across active line)
+function exportCSV(){
+  const arr = [...state.archers[state.activeLine]] || [];
+  arr.forEach(a=>{ a.total = Number(a.total)||0; });
+  arr.sort((x,y)=>y.total - x.total);
+  let csv = 'Archer,Total Score
+';
+  for(const r of arr){ csv += `${r.name},${r.total}
+`; }
+  const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='scores.csv'; a.click();
+}
+
+// ---------- Projector mode controls
+function toggleProjector(){
+  if(projector.style.display === 'flex'){ projector.style.display='none'; document.exitPointerLock?.(); }
+  else{ projector.style.display='flex'; }
+}
+
+// projector buttons should call same functions
+
+// ---------- keyboard handlers
+document.addEventListener('keydown', (e)=>{
+  if(e.code === 'Space'){ e.preventDefault(); if(state.running) pauseTimer(); else startWithPrecount(); }
+  if(e.key.toLowerCase()==='r'){ resetTimer(); }
+  if(e.key.toLowerCase()==='l'){ lineDone(); }
+});
+
+// ---------- handlers attach
+function attachHandlers(){
+  document.getElementById('startBtn').onclick = startWithPrecount;
+  document.getElementById('pauseBtn').onclick = pauseTimer;
+  document.getElementById('resetBtn').onclick = resetTimer;
+  document.getElementById('lineDoneBtn').onclick = lineDone;
+  document.getElementById('addArcherBtn').onclick = addArcher;
+  document.getElementById('exportBtn').onclick = exportCSV;
+  document.getElementById('clearLineBtn').onclick = clearLineScores;
+  document.getElementById('projToggle').onclick = toggleProjector;
+  document.getElementById('homeBtn').onclick = ()=>{ loadPreset(Object.keys(DEFAULT_PRESETS)[0]); };
+  // projector buttons
+  document.getElementById('projStart').onclick = ()=>{ if(state.running) pauseTimer(); else startWithPrecount(); };
+  document.getElementById('projPause').onclick = pauseTimer;
+  document.getElementById('projReset').onclick = resetTimer;
+  document.getElementById('projLineDone').onclick = lineDone;
+  // mode buttons
+  document.getElementById('modeAB').onclick = ()=>{ state.lineMode='AB'; state.activeLine='A'; updateUI(); };
+  document.getElementById('modeCD').onclick = ()=>{ state.lineMode='CD'; state.activeLine='C'; updateUI(); };
+  document.getElementById('applyCustom').onclick = ()=>{
+    const s = Number(document.getElementById('customSeconds').value)||state.totalSeconds;
+    const a = Number(document.getElementById('customArrows').value)||state.arrowsPerEnd;
+    state.totalSeconds = s; state.secondsLeft = s; state.arrowsPerEnd = a; updateUI();
+  };
+  document.getElementById('newPresetBtn').onclick = ()=>{
+    const name = prompt('Preset name:'); if(!name) return; const sec = Number(prompt('Seconds per end', '120'))||120; const arr = Number(prompt('Arrows per end','3'))||3; const ends = Number(prompt('Total ends','12'))||12;
+    DEFAULT_PRESETS[name] = {seconds:sec, arrows:arr, ends:ends, desc:`${sec}s • ${arr} arrows • ${ends} ends`}; renderPresets();
+  };
+}
+
+// ---------- Home button resets and returns
+
+// ---------- init call
+init(); updateUI();
+
+</script>
+</body>
+</html>
